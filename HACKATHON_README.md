@@ -68,9 +68,9 @@ python hackathon/evaluate_asos.py \
 See `my_results/combined_results.csv` for per-datapoint metrics. The summary is printed at the end of evaluation.
 Figures saved by the evaluation script:
 
-![Allosteric per-structure RMSD](my_results/allosteric_rmsd.png)
+![Allosteric per-structure RMSD](allosteric_rmsd.png)
 
-![Orthosteric per-structure RMSD](my_results/orthosteric_rmsd.png)
+![Orthosteric per-structure RMSD](orthosteric_rmsd.png)
 
 ## Implementation details
 
