@@ -91,6 +91,8 @@ We provide an optional offline analysis (not required for evaluation) to study t
 
 - Rationale: Multipole-augmented scoring (MTP-like) may improve energy fidelity; we treat this as motivation for future work since the hackathon’s official metric is structural RMSD, not energy.
 
+ - Additional document: see `Proposal_QURE.docx` (in repo) for an expanded discussion of alternative strategies to improve binding accuracy and potential pipeline enhancements beyond the scope of this submission.
+
 ## Repro checklist
 
 - Fresh clone, create env, install `boltz`.
