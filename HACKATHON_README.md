@@ -102,16 +102,5 @@ We provide an optional offline analysis (not required for evaluation) to study t
 
 ## Submission
 
-- Push this repo to your fork; provide the commit SHA in the submission form.
-- We submit for Challenge 2 (ASOS). If submitting for both, provide separate SHAs.
-
-### Submission checklist
-
-- **Repo URL** of your fork and the **commit SHA** to evaluate
-- **Challenge** (Challenge 2: ASOS)
-- **Method description link** (this file for the hackathon)
-- Verify locally:
-  - Fresh clone → create env → install deps → Predict+Evaluate completes
-  - `my_predictions/` and `my_results/combined_results.csv` present
-  - Optional: `docker build -t boltz-hackathon .` succeeds
-- Submit the form: https://forms.office.com/Pages/ResponsePage.aspx?id=Wft223ejIEG8VFnerX05yXDK4yzHF_lJvVLbJHaHqwFUN0NZMk4xTFBSUlNWTlkzNUhDS1pBUlVHViQlQCN0PWcu
+- Forked the repo and submitted with the commit SHA in the submission form.
+- We submit for Challenge 2 (ASOS). 
