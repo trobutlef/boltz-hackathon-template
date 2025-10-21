@@ -10,6 +10,9 @@ from typing import Any, List, Optional
 
 import yaml
 from hackathon_api import Datapoint, Protein, SmallMolecule
+import copy
+import math
+import numpy as np
 
 # ---------------------------------------------------------------------------
 # ---- Participants should modify these four functions ----------------------
@@ -61,24 +64,31 @@ def prepare_protein_ligand(datapoint_id: str, protein: Protein, ligands: list[Sm
     Returns:
         List of tuples of (final input dict that will get exported as YAML, list of CLI args). Each tuple represents a separate configuration to run.
     """
-    # Please note:
-    # `protein` is a single-chain target protein sequence with id A
-    # `ligands` contains a single small molecule ligand object with unknown binding sites
-    # you can modify input_dict to change the input yaml file going into the prediction, e.g.
-    # ```
-    # input_dict["constraints"] = [{
-    #   "contact": {
-    #       "token1" : [CHAIN_ID, RES_IDX/ATOM_NAME], 
-    #       "token1" : [CHAIN_ID, RES_IDX/ATOM_NAME]
-    #   }
-    # }]
-    # ```
-    #
-    # will add contact constraints to the input_dict
+    # Create multiple configs by scanning coarse pocket windows across the sequence
+    # and varying seeds. Keep sampling light to respect runtime.
+    configs: List[tuple[dict, List[str]]] = []
 
-    # Example: predict 5 structures
-    cli_args = ["--diffusion_samples", "5"]
-    return [(input_dict, cli_args)]
+    seq_len = len(protein.sequence)
+    window = max(80, seq_len // 4)
+    # windows are 1-indexed residue ranges [lo, hi]
+    windows = [(i, min(i + window - 1, seq_len)) for i in range(1, seq_len + 1, window)]
+    seeds = [0, 1]
+    diffusion_samples = 2
+    recycling_steps = 2
+
+    for (lo, hi) in windows:
+        base = copy.deepcopy(input_dict)
+        # Note: Removed ad-hoc pocket constraint to maintain strict schema compatibility.
+
+        for s in seeds:
+            cli = [
+                "--seed", str(s),
+                "--diffusion_samples", str(diffusion_samples),
+                "--recycling_steps", str(recycling_steps),
+            ]
+            configs.append((base, cli))
+
+    return configs
 
 def post_process_protein_complex(datapoint: Datapoint, input_dicts: List[dict[str, Any]], cli_args_list: List[list[str]], prediction_dirs: List[Path]) -> List[Path]:
     """
@@ -101,26 +111,144 @@ def post_process_protein_complex(datapoint: Datapoint, input_dicts: List[dict[st
     all_pdbs = sorted(all_pdbs)
     return all_pdbs
 
+def _pdb_iter_atoms(pdb_path: Path):
+    with open(pdb_path) as f:
+        for line in f:
+            if not (line.startswith("ATOM") or line.startswith("HETATM")):
+                continue
+            name = line[12:16].strip()
+            elem = (line[76:78] or name[:1]).strip().upper()
+            x = float(line[30:38]); y = float(line[38:46]); z = float(line[46:54])
+            record = {
+                "het": line.startswith("HETATM"),
+                "name": name,
+                "elem": elem,
+                "xyz": (x, y, z),
+                "is_ca": (name == "CA" and not line.startswith("HETATM")),
+            }
+            yield record
+
+def _split_atoms(pdb_path: Path):
+    prot_xyz, prot_ca_xyz, lig_xyz, lig_NO_xyz = [], [], [], []
+    for a in _pdb_iter_atoms(pdb_path):
+        is_h = (a["elem"] == "H")
+        if a["het"]:
+            if not is_h:
+                lig_xyz.append(a["xyz"])
+                if a["elem"] in ("N", "O"):
+                    lig_NO_xyz.append(a["xyz"])
+        else:
+            if not is_h:
+                prot_xyz.append(a["xyz"])
+                if a["is_ca"]:
+                    prot_ca_xyz.append(a["xyz"])
+    if not prot_ca_xyz:
+        prot_ca_xyz = prot_xyz
+    return np.array(prot_xyz), np.array(prot_ca_xyz), np.array(lig_xyz), np.array(lig_NO_xyz)
+
+def _pairwise_dists(A: np.ndarray, B: np.ndarray):
+    if A.size == 0 or B.size == 0:
+        return np.zeros((A.shape[0], B.shape[0]))
+    diff = A[:, None, :] - B[None, :, :]
+    return np.linalg.norm(diff, axis=-1)
+
+def _contacts_clashes(prot_xyz, lig_xyz, contact_cut=4.5, clash_cut=2.2):
+    if prot_xyz.size == 0 or lig_xyz.size == 0:
+        return 0, 0
+    D = _pairwise_dists(prot_xyz, lig_xyz)
+    contacts = int((D <= contact_cut).sum())
+    clashes = int((D < clash_cut).sum())
+    return contacts, clashes
+
+def _hbond_proxy(prot_xyz, lig_NO_xyz, cut=3.5):
+    if prot_xyz.size == 0 or lig_NO_xyz.size == 0:
+        return 0
+    D = _pairwise_dists(prot_xyz, lig_NO_xyz)
+    return int((D <= cut).sum())
+
+def _pocket_depth(prot_ca_xyz, lig_xyz):
+    if prot_ca_xyz.size == 0 or lig_xyz.size == 0:
+        return 0.0
+    lig_com = lig_xyz.mean(axis=0, keepdims=True)
+    D = _pairwise_dists(prot_ca_xyz, lig_com)
+    return float(-D.min())
+
+def _load_confidence(pred_dir: Path, model_k: int) -> float:
+    for p in pred_dir.rglob(f"confidence_*_model_{model_k}.json"):
+        try:
+            with open(p) as f:
+                d = json.load(f)
+            return float(d.get("confidence", d.get("plddt_mean", 0.0)))
+        except Exception:
+            continue
+    return 0.0
+
+def _minmax_norm(vals: List[float]):
+    if not vals:
+        return []
+    vmin, vmax = min(vals), max(vals)
+    if math.isclose(vmin, vmax):
+        return [0.0 for _ in vals]
+    return [(v - vmin) / (vmax - vmin) for v in vals]
+
 def post_process_protein_ligand(datapoint: Datapoint, input_dicts: List[dict[str, Any]], cli_args_list: List[list[str]], prediction_dirs: List[Path]) -> List[Path]:
     """
-    Return ranked model files for protein-ligand submission.
-    Args:
-        datapoint: The original datapoint object
-        input_dicts: List of input dictionaries used for predictions (one per config)
-        cli_args_list: List of command line arguments used for predictions (one per config)
-        prediction_dirs: List of directories containing prediction results (one per config)
-    Returns: 
-        Sorted pdb file paths that should be used as your submission.
+    Hybrid reranking for protein-ligand predictions using:
+      + Boltz confidence (from JSON)
+      + Contacts (<=4.5Å)
+      - Clashes  (<2.2Å)
+      + H-bond proxy (N/O <=3.5Å)
+      + Pocket depth (COM-to-CA surface, inverted)
+    Returns top-5 PDB paths in rank order.
     """
-    # Collect all PDBs from all configurations
-    all_pdbs = []
-    for prediction_dir in prediction_dirs:
-        config_pdbs = sorted(prediction_dir.glob(f"{datapoint.datapoint_id}_config_*_model_*.pdb"))
-        all_pdbs.extend(config_pdbs)
-    
-    # Sort all PDBs and return their paths
-    all_pdbs = sorted(all_pdbs)
-    return all_pdbs
+    candidates = []
+    for pred_dir in prediction_dirs:
+        for pdb in pred_dir.rglob("*.pdb"):
+            name = pdb.stem
+            try:
+                model_k = int(name.split("_")[-1])
+            except Exception:
+                continue
+            prot_xyz, prot_ca_xyz, lig_xyz, lig_NO_xyz = _split_atoms(pdb)
+            contacts, clashes = _contacts_clashes(prot_xyz, lig_xyz)
+            hbonds = _hbond_proxy(prot_xyz, lig_NO_xyz)
+            depth = _pocket_depth(prot_ca_xyz, lig_xyz)
+            conf = _load_confidence(pred_dir, model_k)
+            candidates.append({
+                "pdb": pdb,
+                "conf": float(conf),
+                "contacts": float(contacts),
+                "clashes": float(clashes),
+                "hbonds": float(hbonds),
+                "depth": float(depth),
+            })
+
+    if not candidates:
+        return []
+
+    confs = [c["conf"] for c in candidates]
+    contacts = [c["contacts"] for c in candidates]
+    clashes = [c["clashes"] for c in candidates]
+    hbonds = [c["hbonds"] for c in candidates]
+    depths = [c["depth"] for c in candidates]
+
+    n_conf = _minmax_norm(confs)
+    n_contact = _minmax_norm(contacts)
+    n_clash = _minmax_norm(clashes)
+    n_hbond = _minmax_norm(hbonds)
+    n_depth = _minmax_norm(depths)
+
+    for i, c in enumerate(candidates):
+        c["score"] = (
+            1.0 * n_conf[i]
+            + 0.5 * n_contact[i]
+            - 1.0 * n_clash[i]
+            + 0.3 * n_hbond[i]
+            + 0.2 * n_depth[i]
+        )
+
+    ranked = sorted(candidates, key=lambda x: x["score"], reverse=True)
+    return [c["pdb"] for c in ranked[:5]]
 
 # -----------------------------------------------------------------------------
 # ---- End of participant section ---------------------------------------------
