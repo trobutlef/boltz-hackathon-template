@@ -91,7 +91,7 @@ We provide an optional offline analysis (not required for evaluation) to study t
 
 - Rationale: Multipole-augmented scoring (MTP-like) may improve energy fidelity; we treat this as motivation for future work since the hackathon’s official metric is structural RMSD, not energy.
 
- - Additional document: see `Proposal_QURE.docx` (in repo) for an expanded discussion of alternative strategies to improve binding accuracy and potential pipeline enhancements beyond the scope of this submission.
+ - Additional document: see [Proposal_QURE.docx](Proposal_QURE.docx) (in repo) for an expanded discussion of alternative strategies to improve binding accuracy and potential pipeline enhancements beyond the scope of this submission.
 
 ## Repro checklist
 
@@ -108,8 +108,8 @@ We provide an optional offline analysis (not required for evaluation) to study t
 ### Submission checklist
 
 - **Repo URL** of your fork and the **commit SHA** to evaluate
-- **Challenge** selected (Challenge 2: ASOS)
-- **Method description link** (this file)
+- **Challenge** (Challenge 2: ASOS)
+- **Method description link** (this file for the hackathon)
 - Verify locally:
   - Fresh clone → create env → install deps → Predict+Evaluate completes
   - `my_predictions/` and `my_results/combined_results.csv` present
