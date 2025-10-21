@@ -91,6 +91,8 @@ We provide an optional offline analysis (not required for evaluation) to study t
 
 - Rationale: Multipole-augmented scoring (MTP-like) may improve energy fidelity; we treat this as motivation for future work since the hackathon’s official metric is structural RMSD, not energy.
 
+> Note: The Vina/MTP analysis is a proof-of-concept explored separately and was not executed as part of this official submission. It represents planned future work.
+
  - Additional document: see [Proposal_QURE.docx](Proposal_QURE.docx) (in repo) for an expanded discussion of alternative strategies to improve binding accuracy and potential pipeline enhancements beyond the scope of this submission.
 
 ## Repro checklist
